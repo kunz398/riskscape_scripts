@@ -80,8 +80,41 @@ def pollRun(run_id, interval=5, timeout=1800):
         print(f"[run] {run_id} {run.get('state')}... waiting {interval}s")
         time.sleep(interval)
 
+def downloadOutputs(run_id, out_dir="downloads"):
+    run_url = f"{BASE_URL}/api/model-runs/by-id/{run_id}"
+
+    r = session.get(run_url, timeout=30)
+    print(f"    HTTP {r.status_code} GET {run_url}")
+    r.raise_for_status()
+    run = r.json()
+
+    outputs = run.get("outputs", [])
+    if not outputs:
+        print(f"[download] run {run_id} has no outputs")
+        return
+
+    folder = os.path.join(out_dir, str(run_id))
+    os.makedirs(folder, exist_ok=True)
+
+    for output in outputs:
+        name = output["name"] if isinstance(output, dict) else output
+        url = f"{run_url}/output/{name}/download"
+
+        r = session.get(url, timeout=300, stream=True)
+        print(f"    HTTP {r.status_code} GET {url}")
+        if not r.ok:
+            print(f"[download] {name} FAILED: {r.text[:200]}")
+            continue
+
+        path = os.path.join(folder, name)
+        with open(path, "wb") as f:
+            for chunk in r.iter_content(chunk_size=1024 * 1024):
+                f.write(chunk)
+        print(f"[download] {name} -> {path} ({os.path.getsize(path)} bytes)")
+
 
 if __name__ == "__main__":
+
     if not API_KEY:
         sys.exit("Set RISKSCAPE_TOKEN first: export RISKSCAPE_TOKEN=...")
 
@@ -110,3 +143,6 @@ if __name__ == "__main__":
 
     run = pollRun(run_id)
     print(f"[done] run {run_id} outputs: {run.get('outputs')}")
+
+    # download  output
+    downloadOutputs(run_id)
